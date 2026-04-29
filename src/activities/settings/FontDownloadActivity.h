@@ -8,7 +8,7 @@
 #include "util/ButtonNavigator.h"
 
 #ifndef FONT_MANIFEST_URL
-#define FONT_MANIFEST_URL "https://github.com/jpirnay/crosspoint-reader/releases/download/sd-fonts/fonts.json"
+#define FONT_MANIFEST_URL "https://github.com/jpirnay/crosspoint-reader/assets/sd-fonts/fonts.json"
 #endif
 
 class FontDownloadActivity : public Activity {
