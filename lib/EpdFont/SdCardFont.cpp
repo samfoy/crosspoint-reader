@@ -489,7 +489,9 @@ bool SdCardFont::load(const char* path) {
     uint8_t styleId = tocBuf[0];
     if (styleId >= MAX_STYLES) {
       LOG_ERR("SDCF", "Invalid styleId %u in TOC", styleId);
-      continue;
+      file.close();
+      freeAll();
+      return false;
     }
 
     auto& s = styles_[styleId];
@@ -506,14 +508,19 @@ bool SdCardFont::load(const char* path) {
     s.header.ligaturePairCount = tocBuf[23];
     s.header.is2Bit = is2Bit;
 
-    // Sanity-check counts to reject malformed files before allocating
+    // Sanity-check counts to reject malformed files before allocating.
+    // Kern class counts are uint8 (bounded by type). Entry counts are uint16
+    // but in practice a sane font has far fewer than 4096 per-side kern entries.
     static constexpr uint32_t MAX_INTERVALS = 4096;
     static constexpr uint32_t MAX_GLYPHS = 65536;
-    if (s.header.intervalCount > MAX_INTERVALS || s.header.glyphCount > MAX_GLYPHS) {
-      LOG_ERR("SDCF", "Style %u: unreasonable counts (intervals=%u, glyphs=%u)", styleId, s.header.intervalCount,
-              s.header.glyphCount);
-      s.present = false;
-      continue;
+    static constexpr uint32_t MAX_KERN_ENTRIES = 4096;
+    if (s.header.intervalCount > MAX_INTERVALS || s.header.glyphCount > MAX_GLYPHS ||
+        s.header.kernLeftEntryCount > MAX_KERN_ENTRIES || s.header.kernRightEntryCount > MAX_KERN_ENTRIES) {
+      LOG_ERR("SDCF", "Style %u: unreasonable counts (iv=%u, gl=%u, kL=%u, kR=%u)", styleId, s.header.intervalCount,
+              s.header.glyphCount, s.header.kernLeftEntryCount, s.header.kernRightEntryCount);
+      file.close();
+      freeAll();
+      return false;
     }
 
     uint32_t dataOffset = readU32(tocBuf + 24);
@@ -1219,11 +1226,15 @@ void SdCardFont::resetStats() { stats_ = Stats{}; }
 // --- Public accessors ---
 
 EpdFont* SdCardFont::getEpdFont(uint8_t style) {
-  if (style >= MAX_STYLES || !styles_[style].present) return nullptr;
+  // Mask off any extra style bits (e.g. UNDERLINE = 4) so we resolve back to the
+  // matching base style (REGULAR/BOLD/ITALIC/BOLD_ITALIC). Assumes MAX_STYLES is
+  // a power of two.
+  style &= (MAX_STYLES - 1);
+  if (!styles_[style].present) return nullptr;
   return &styles_[style].epdFont;
 }
 
-bool SdCardFont::hasStyle(uint8_t style) const { return style < MAX_STYLES && styles_[style].present; }
+bool SdCardFont::hasStyle(uint8_t style) const { return styles_[style & (MAX_STYLES - 1)].present; }
 
 // --- On-demand glyph loading (overflow buffer) ---
 
@@ -1247,35 +1258,26 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
   int32_t globalIdx = self->findGlobalGlyphIndex(s, codepoint);
   if (globalIdx < 0) return nullptr;
 
-  // Pick overflow slot (ring buffer). Read into temporaries first so the
-  // existing slot stays valid if SD I/O fails.
-  uint32_t slot = self->overflowNext_;
-  bool wasAtCapacity = (self->overflowCount_ == OVERFLOW_CAPACITY);
-  if (!wasAtCapacity) {
-    self->overflowCount_++;
-  }
-  self->overflowNext_ = (slot + 1) % OVERFLOW_CAPACITY;
-
-  // Read glyph metadata into temporary
+  // Read everything into temporaries first. Do NOT advance overflowNext_ or
+  // overflowCount_ until all reads succeed — otherwise a failed read would
+  // leave a skipped slot with default-zero state that the lookup loop would
+  // later false-match against U+0000.
   FsFile file;
   if (!Storage.openFileForRead("SDCF", self->filePath_, file)) {
     LOG_ERR("SDCF", "Overflow: failed to open .cpfont");
-    if (!wasAtCapacity) self->overflowCount_--;
     return nullptr;
   }
 
-  EpdGlyph tempGlyph;
+  EpdGlyph tempGlyph = {};
   uint32_t glyphFileOff = s.glyphsFileOffset + static_cast<uint32_t>(globalIdx) * sizeof(EpdGlyph);
   if (!file.seekSet(glyphFileOff)) {
     LOG_ERR("SDCF", "Overflow: seek failed for glyph metadata U+%04X style %u", codepoint, styleIdx);
     file.close();
-    if (!wasAtCapacity) self->overflowCount_--;
     return nullptr;
   }
   if (file.read(reinterpret_cast<uint8_t*>(&tempGlyph), sizeof(EpdGlyph)) != sizeof(EpdGlyph)) {
     LOG_ERR("SDCF", "Overflow: failed to read glyph metadata for U+%04X style %u", codepoint, styleIdx);
     file.close();
-    if (!wasAtCapacity) self->overflowCount_--;
     return nullptr;
   }
 
@@ -1286,31 +1288,33 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
     if (!tempBitmap) {
       LOG_ERR("SDCF", "Overflow: failed to allocate %u bytes for U+%04X bitmap", tempGlyph.dataLength, codepoint);
       file.close();
-      if (!wasAtCapacity) self->overflowCount_--;
       return nullptr;
     }
     if (!file.seekSet(s.bitmapFileOffset + tempGlyph.dataOffset)) {
       LOG_ERR("SDCF", "Overflow: seek failed for bitmap U+%04X style %u", codepoint, styleIdx);
       delete[] tempBitmap;
       file.close();
-      if (!wasAtCapacity) self->overflowCount_--;
       return nullptr;
     }
     if (file.read(tempBitmap, tempGlyph.dataLength) != static_cast<int>(tempGlyph.dataLength)) {
       LOG_ERR("SDCF", "Overflow: failed to read bitmap for U+%04X", codepoint);
       delete[] tempBitmap;
       file.close();
-      if (!wasAtCapacity) self->overflowCount_--;
       return nullptr;
     }
   }
 
   file.close();
 
-  // All reads succeeded — commit to slot (evict old entry if at capacity)
+  // All reads succeeded — NOW claim and commit the slot.
+  uint32_t slot = self->overflowNext_;
+  bool wasAtCapacity = (self->overflowCount_ == OVERFLOW_CAPACITY);
   if (wasAtCapacity) {
     delete[] self->overflow_[slot].bitmap;
+  } else {
+    self->overflowCount_++;
   }
+  self->overflowNext_ = (slot + 1) % OVERFLOW_CAPACITY;
   self->overflow_[slot].glyph = tempGlyph;
   self->overflow_[slot].bitmap = tempBitmap;
   self->overflow_[slot].codepoint = codepoint;

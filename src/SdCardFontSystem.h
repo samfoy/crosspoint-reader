@@ -33,6 +33,15 @@ class SdCardFontSystem {
   /// Picked up on the next ensureLoaded() call from the main UI task.
   void markRegistryDirty() { registryDirty_.store(true, std::memory_order_release); }
 
+  /// If the registry is dirty, re-scan the SD card now and clear the flag.
+  /// Used by the web UI and settings menu so uploaded/deleted fonts appear without
+  /// having to wait for the next ensureLoaded() call from the reader.
+  void refreshIfDirty() {
+    if (registryDirty_.exchange(false, std::memory_order_acquire)) {
+      registry_.discover();
+    }
+  }
+
  private:
   SdCardFontRegistry registry_;
   SdCardFontManager manager_;

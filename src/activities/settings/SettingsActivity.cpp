@@ -10,6 +10,7 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "SdCardFontGlobals.h"
 #include "SettingActionDispatch.h"
 #include "SettingsList.h"
 #include "SettingsSubmenuActivity.h"
@@ -45,6 +46,10 @@ void SettingsActivity::onEnter() {
   StrId lastReaderSub = StrId::STR_NONE_OPT;
   StrId lastControlsSub = StrId::STR_NONE_OPT;
   StrId lastSystemSub = StrId::STR_NONE_OPT;
+
+  // Pick up any fonts uploaded/deleted over the web server since the last reader
+  // activity ran — otherwise the font-family picker shows a stale list.
+  sdFontSystem.refreshIfDirty();
 
   auto addTo = [](std::vector<SettingInfo>& vec, StrId& lastSub, const SettingInfo& s) {
     if (s.subcategory != StrId::STR_NONE_OPT && s.subcategory != lastSub) {
