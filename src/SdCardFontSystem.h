@@ -3,6 +3,8 @@
 #include <SdCardFontManager.h>
 #include <SdCardFontRegistry.h>
 
+#include <atomic>
+
 class GfxRenderer;
 
 /// Facade that owns the SD card font registry, manager, and resolver logic.
@@ -25,8 +27,14 @@ class SdCardFontSystem {
 
   /// Access the registry (e.g. for settings UI to enumerate available fonts).
   const SdCardFontRegistry& registry() const { return registry_; }
+  SdCardFontRegistry& registry() { return registry_; }
+
+  /// Mark the registry as needing re-discovery. Thread-safe; callable from the web task.
+  /// Picked up on the next ensureLoaded() call from the main UI task.
+  void markRegistryDirty() { registryDirty_.store(true, std::memory_order_release); }
 
  private:
   SdCardFontRegistry registry_;
   SdCardFontManager manager_;
+  std::atomic<bool> registryDirty_{false};
 };

@@ -227,6 +227,20 @@ void SettingsActivity::toggleCurrentSetting() {
   const auto& setting = (*currentSettings)[selectedSetting];
   if (setting.isSeparator) return;
 
+  // Font family: launch the dedicated full-screen picker instead of cycling enum values.
+  // The shared SettingsList declares it as DynamicEnum so the web UI keeps working as
+  // a dropdown; only the on-device confirm action is overridden here.
+  if (setting.key && std::strcmp(setting.key, "fontFamily") == 0) {
+    auto activity = createActivityForAction(SettingAction::FontFamily, renderer, mappedInput);
+    if (activity) {
+      startActivityForResult(std::move(activity), [this](const ActivityResult&) {
+        SETTINGS.saveToFile();
+        needsHalfRefresh = true;
+      });
+    }
+    return;
+  }
+
   if (setting.type == SettingType::ACTION) {
     auto resultHandler = [this](const ActivityResult& result) {
       SETTINGS.saveToFile();

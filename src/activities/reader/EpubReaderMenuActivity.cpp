@@ -135,11 +135,11 @@ void EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes, bool hasStarredPa
           })
           .withSubmenu(StrId::STR_READER_OVERRIDES));
 
-  // Reader font size: cycles default(-1) -> Small(0) -> Medium(1) -> Large(2) -> X Large(3)
+  // Reader font size: cycles default(-1) -> Tiny(0) -> Small(1) -> Medium(2) -> Large(3) -> X Large(4)
   menuItems.push_back(
       SettingInfo::DynamicEnumCtx(
           StrId::STR_FONT_SIZE,
-          {StrId::STR_DEFAULT_VALUE, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE}, self,
+          {StrId::STR_DEFAULT_VALUE, StrId::STR_TINY, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE}, self,
           [](const void* ctx) -> uint8_t {
             const auto* s = static_cast<const EpubReaderMenuActivity*>(ctx);
             return (s->pendingFontSizeOverride < 0) ? 0 : static_cast<uint8_t>(s->pendingFontSizeOverride + 1);

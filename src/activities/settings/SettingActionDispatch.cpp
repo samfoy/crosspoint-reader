@@ -4,6 +4,8 @@
 #include "ClearCacheActivity.h"
 #include "ClockSettingsActivity.h"
 #include "DetectTimezoneActivity.h"
+#include "FontDownloadActivity.h"
+#include "FontSelectionActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "OpdsServerListActivity.h"
@@ -43,6 +45,10 @@ std::unique_ptr<Activity> createActivityForAction(SettingAction action, GfxRende
       return std::make_unique<SyncTimeActivity>(renderer, mappedInput);
     case SettingAction::DetectTimezone:
       return std::make_unique<DetectTimezoneActivity>(renderer, mappedInput);
+    case SettingAction::FontFamily:
+      return std::make_unique<FontSelectionActivity>(renderer, mappedInput);
+    case SettingAction::DownloadFonts:
+      return std::make_unique<FontDownloadActivity>(renderer, mappedInput);
     case SettingAction::Submenu:
     case SettingAction::None:
       return nullptr;

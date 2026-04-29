@@ -95,8 +95,13 @@ inline const std::vector<SettingInfo> list = {
                              {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_OPEN_DYSLEXIC},
                              fontFamilyDynamicGetter, fontFamilyDynamicSetter, "fontFamily", StrId::STR_CAT_READER)
         .withSubcategory(StrId::STR_MENU_READER_FONT),
+    [] {
+      auto s = SettingInfo::Action(StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts);
+      s.category = StrId::STR_CAT_READER;
+      return s.withSubcategory(StrId::STR_MENU_READER_FONT);
+    }(),
     SettingInfo::Enum(StrId::STR_FONT_SIZE, &CrossPointSettings::fontSize,
-                      {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE}, "fontSize",
+                      {StrId::STR_TINY, StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE, StrId::STR_X_LARGE}, "fontSize",
                       StrId::STR_CAT_READER)
         .withSubmenu(StrId::STR_MENU_READER_FONT_SETTINGS),
     SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",

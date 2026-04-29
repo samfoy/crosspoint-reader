@@ -26,6 +26,8 @@ enum class SettingAction {
   DetectTimezone,
   SyncTime,
   Weather,
+  FontFamily,
+  DownloadFonts,
   Submenu,
 };
 

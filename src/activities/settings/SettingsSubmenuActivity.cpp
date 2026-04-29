@@ -5,6 +5,8 @@
 #include <HalGPIO.h>
 #include <I18n.h>
 
+#include <cstring>
+
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SettingActionDispatch.h"
@@ -21,6 +23,17 @@ void SettingsSubmenuActivity::onEnter() {
 void SettingsSubmenuActivity::onActionSelected(int index) {
   const auto& setting = menuItems[index];
   if (setting.isSeparator) return;
+
+  // Font family: bubble up a FontFamily action so the parent launches the picker.
+  // Declared as DynamicEnum in SettingsList for the web UI; on device we override the
+  // confirm path to avoid a long cycle through 20+ family names.
+  if (setting.key && std::strcmp(setting.key, "fontFamily") == 0) {
+    MenuResult menuResult;
+    menuResult.action = static_cast<int>(SettingAction::FontFamily);
+    setResult(ActivityResult(menuResult));
+    finish();
+    return;
+  }
 
   if (setting.type == SettingType::ACTION) {
     MenuResult menuResult;
