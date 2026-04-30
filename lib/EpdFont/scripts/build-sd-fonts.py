@@ -174,7 +174,8 @@ def build_family(family: dict, output_base: Path) -> tuple[str, bool, str]:
 
 
 def generate_manifest(
-    families_config: list[dict], output_base: Path, base_url: str, manifest_path: Path
+    families_config: list[dict], output_base: Path, base_url: str, manifest_path: Path,
+    config_path: Path,
 ):
     """Generate fonts.json manifest from config + built output.
 
@@ -182,7 +183,6 @@ def generate_manifest(
     descriptions come from the YAML config via --descriptions-from.
     """
     manifest_script = SCRIPT_DIR.parent.parent.parent / "scripts" / "generate-font-manifest.py"
-    config_path = SCRIPT_DIR / "sd-fonts.yaml"
 
     if not base_url.endswith("/"):
         base_url += "/"
@@ -308,7 +308,7 @@ def main():
     # Manifest
     if args.manifest:
         manifest_path = Path(args.manifest_output) if args.manifest_output else output_base / "fonts.json"
-        generate_manifest(families, output_base, args.base_url, manifest_path)
+        generate_manifest(families, output_base, args.base_url, manifest_path, config_path)
 
     if failed:
         sys.exit(1)
