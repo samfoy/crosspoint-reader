@@ -148,7 +148,16 @@ bool RecentBooksStore::loadFromFile() {
   if (Storage.exists(RECENT_BOOKS_FILE_JSON)) {
     String json = Storage.readFile(RECENT_BOOKS_FILE_JSON);
     if (!json.isEmpty()) {
-      return JsonSettingsIO::loadRecentBooks(*this, json.c_str());
+      bool needsResave = false;
+      bool ok = JsonSettingsIO::loadRecentBooks(*this, json.c_str(), &needsResave);
+      if (ok && needsResave) {
+        if (saveToFile()) {
+          LOG_DBG("RBS", "Resaved recent.json after format migration");
+        } else {
+          LOG_ERR("RBS", "Failed to resave recent.json after format migration");
+        }
+      }
+      return ok;
     }
   }
 

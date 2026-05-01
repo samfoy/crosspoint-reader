@@ -196,6 +196,12 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
     doc["sdFontFamilyName"] = s.sdFontFamilyName;
   }
 
+  // Format-version sentinel. v2 introduced TINY=0 in the FONT_SIZE enum, shifting all
+  // existing values by +1. The presence of this key tells the loader that fontSize
+  // and any fontSizeOverride values are already in v2 numbering and should not be
+  // re-migrated. See loadSettings()/loadRecentBooks() for the migration path.
+  doc["fontSizeFormatV2"] = true;
+
   String json;
   serializeJson(doc, json);
   return Storage.writeFile(path, json);
@@ -216,6 +222,18 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
   // Populate s with migrated values now so the generic loop below picks them up as defaults and clamps them.
   if (doc["statusBarChapterPageCount"].isNull()) {
     applyLegacyStatusBarSettings(s);
+  }
+
+  // FONT_SIZE migration: v1 used SMALL=0 / MEDIUM=1 / LARGE=2 / EXTRA_LARGE=3. v2 added
+  // TINY=0 at the front, shifting all existing values by +1. If the format sentinel is
+  // missing AND a fontSize key is present, treat it as a v1 file and shift up.
+  const bool fontSizeNeedsMigration = doc["fontSizeFormatV2"].isNull() && !doc["fontSize"].isNull();
+  if (fontSizeNeedsMigration) {
+    int v = doc["fontSize"] | static_cast<int>(CrossPointSettings::MEDIUM - 1);
+    if (v >= 0 && v + 1 < CrossPointSettings::FONT_SIZE_COUNT) {
+      doc["fontSize"] = v + 1;
+    }
+    if (needsResave) *needsResave = true;
   }
 
   for (const auto& info : getSettingsList()) {
@@ -406,6 +424,8 @@ bool JsonSettingsIO::loadWifi(WifiCredentialStore& store, const char* json, bool
 
 bool JsonSettingsIO::saveRecentBooks(const RecentBooksStore& store, const char* path) {
   JsonDocument doc;
+  // Format-version sentinel — see saveSettings()/loadSettings() for context.
+  doc["fontSizeFormatV2"] = true;
   JsonArray arr = doc["books"].to<JsonArray>();
   for (const auto& book : store.getBooks()) {
     JsonObject obj = arr.add<JsonObject>();
@@ -425,7 +445,8 @@ bool JsonSettingsIO::saveRecentBooks(const RecentBooksStore& store, const char* 
   return Storage.writeFile(path, json);
 }
 
-bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) {
+bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json, bool* needsResave) {
+  if (needsResave) *needsResave = false;
   JsonDocument doc;
   auto error = deserializeJson(doc, json);
   if (error) {
@@ -434,6 +455,11 @@ bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) 
   }
 
   store.recentBooks.clear();
+  // FONT_SIZE migration: pre-v2 files lack the fontSizeFormatV2 sentinel and store
+  // fontSizeOverride values from the old enum (SMALL=0..EXTRA_LARGE=3). Shift them
+  // up by one to match v2 (TINY=0..EXTRA_LARGE=4). -1 (use global setting) is left as-is.
+  const bool fontSizeMigrate = doc["fontSizeFormatV2"].isNull();
+  if (fontSizeMigrate && needsResave) *needsResave = true;
   JsonArray arr = doc["books"].as<JsonArray>();
   auto clampInt8 = [](int value, int minValue, int maxValue, int8_t fallback) -> int8_t {
     if (value < minValue || value > maxValue) {
@@ -454,7 +480,9 @@ bool JsonSettingsIO::loadRecentBooks(RecentBooksStore& store, const char* json) 
     book.imageRenderingOverride = clampInt8(obj["imageRenderingOverride"] | -1, -1, 2, -1);
     book.fontFamilyOverride =
         clampInt8(obj["fontFamilyOverride"] | -1, -1, CrossPointSettings::FONT_FAMILY_COUNT - 1, -1);
-    book.fontSizeOverride = clampInt8(obj["fontSizeOverride"] | -1, -1, CrossPointSettings::FONT_SIZE_COUNT - 1, -1);
+    int rawSizeOverride = obj["fontSizeOverride"] | -1;
+    if (fontSizeMigrate && rawSizeOverride >= 0) rawSizeOverride += 1;
+    book.fontSizeOverride = clampInt8(rawSizeOverride, -1, CrossPointSettings::FONT_SIZE_COUNT - 1, -1);
     store.recentBooks.push_back(book);
   }
 

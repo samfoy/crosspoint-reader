@@ -23,7 +23,7 @@ struct RecentBook {
 
 class RecentBooksStore;
 namespace JsonSettingsIO {
-bool loadRecentBooks(RecentBooksStore& store, const char* json);
+bool loadRecentBooks(RecentBooksStore& store, const char* json, bool* needsResave);
 }  // namespace JsonSettingsIO
 
 class RecentBooksStore {
@@ -32,7 +32,7 @@ class RecentBooksStore {
 
   std::vector<RecentBook> recentBooks;
 
-  friend bool JsonSettingsIO::loadRecentBooks(RecentBooksStore&, const char*);
+  friend bool JsonSettingsIO::loadRecentBooks(RecentBooksStore&, const char*, bool*);
 
  public:
   ~RecentBooksStore() = default;

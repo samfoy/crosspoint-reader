@@ -14,10 +14,12 @@
 // Font ID 0 is reserved as the SD card font "not found" sentinel
 // (SdCardFontManager::computeFontId() never returns 0). Guard against any
 // hash accidentally producing 0 — would cause silent fallback to built-in.
+static_assert(BOOKERLY_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_14_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_16_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(BOOKERLY_18_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(NOTOSANS_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_14_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_16_FONT_ID != 0, "Font ID collision with sentinel");
@@ -26,6 +28,7 @@ static_assert(OPENDYSLEXIC_8_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(OPENDYSLEXIC_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(OPENDYSLEXIC_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(OPENDYSLEXIC_14_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(OPENDYSLEXIC_16_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_10_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_12_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(SMALL_FONT_ID != 0, "Font ID collision with sentinel");
@@ -187,7 +190,18 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, fontFamily, FONT_FAMILY_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, fontSize, FONT_SIZE_COUNT);
+    // v1 bin files store fontSize in the old enum (SMALL=0..EXTRA_LARGE=3).
+    // v2 added TINY=0 at the front, so shift up by one on read. Use a fixed
+    // upper bound of the old enum (4) so out-of-range values fall back to the
+    // member default (MEDIUM in v2 numbering) instead of being shifted.
+    {
+      constexpr uint8_t LEGACY_FONT_SIZE_COUNT = 4;  // pre-v2: SMALL..EXTRA_LARGE
+      uint8_t legacy;
+      serialization::readPod(inputFile, legacy);
+      if (legacy < LEGACY_FONT_SIZE_COUNT) {
+        fontSize = legacy + 1;  // shift to v2 (TINY=0 added)
+      }
+    }
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, lineSpacing, LINE_COMPRESSION_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -342,6 +356,8 @@ int CrossPointSettings::getBuiltinReaderFontId(uint8_t family, uint8_t size) {
     case BOOKERLY:
     default:
       switch (size) {
+        case TINY:
+          return BOOKERLY_10_FONT_ID;
         case SMALL:
           return BOOKERLY_12_FONT_ID;
         case MEDIUM:
@@ -354,6 +370,8 @@ int CrossPointSettings::getBuiltinReaderFontId(uint8_t family, uint8_t size) {
       }
     case NOTOSANS:
       switch (size) {
+        case TINY:
+          return NOTOSANS_10_FONT_ID;
         case SMALL:
           return NOTOSANS_12_FONT_ID;
         case MEDIUM:
@@ -366,15 +384,17 @@ int CrossPointSettings::getBuiltinReaderFontId(uint8_t family, uint8_t size) {
       }
     case OPENDYSLEXIC:
       switch (size) {
-        case SMALL:
+        case TINY:
           return OPENDYSLEXIC_8_FONT_ID;
+        case SMALL:
+          return OPENDYSLEXIC_10_FONT_ID;
         case MEDIUM:
         default:
-          return OPENDYSLEXIC_10_FONT_ID;
-        case LARGE:
           return OPENDYSLEXIC_12_FONT_ID;
-        case EXTRA_LARGE:
+        case LARGE:
           return OPENDYSLEXIC_14_FONT_ID;
+        case EXTRA_LARGE:
+          return OPENDYSLEXIC_16_FONT_ID;
       }
   }
 }

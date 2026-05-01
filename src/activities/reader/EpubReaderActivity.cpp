@@ -1744,45 +1744,7 @@ bool EpubReaderActivity::drawCurrentPageToBuffer(const std::string& filePath, Gf
   const uint8_t effectiveFontSize =
       currentBook.fontSizeOverride >= 0 ? static_cast<uint8_t>(currentBook.fontSizeOverride) : SETTINGS.fontSize;
   auto getEffectiveFontId = [&](uint8_t family, uint8_t size) {
-    switch (family) {
-      case CrossPointSettings::NOTOSANS:
-        switch (size) {
-          case CrossPointSettings::SMALL:
-            return NOTOSANS_12_FONT_ID;
-          case CrossPointSettings::LARGE:
-            return NOTOSANS_16_FONT_ID;
-          case CrossPointSettings::EXTRA_LARGE:
-            return NOTOSANS_18_FONT_ID;
-          case CrossPointSettings::MEDIUM:
-          default:
-            return NOTOSANS_14_FONT_ID;
-        }
-      case CrossPointSettings::OPENDYSLEXIC:
-        switch (size) {
-          case CrossPointSettings::SMALL:
-            return OPENDYSLEXIC_8_FONT_ID;
-          case CrossPointSettings::LARGE:
-            return OPENDYSLEXIC_12_FONT_ID;
-          case CrossPointSettings::EXTRA_LARGE:
-            return OPENDYSLEXIC_14_FONT_ID;
-          case CrossPointSettings::MEDIUM:
-          default:
-            return OPENDYSLEXIC_10_FONT_ID;
-        }
-      case CrossPointSettings::BOOKERLY:
-      default:
-        switch (size) {
-          case CrossPointSettings::SMALL:
-            return BOOKERLY_12_FONT_ID;
-          case CrossPointSettings::LARGE:
-            return BOOKERLY_16_FONT_ID;
-          case CrossPointSettings::EXTRA_LARGE:
-            return BOOKERLY_18_FONT_ID;
-          case CrossPointSettings::MEDIUM:
-          default:
-            return BOOKERLY_14_FONT_ID;
-        }
-    }
+    return CrossPointSettings::getBuiltinReaderFontId(family, size);
   };
 
   const int effectiveFontId = getEffectiveFontId(effectiveFontFamily, effectiveFontSize);

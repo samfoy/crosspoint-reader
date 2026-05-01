@@ -68,12 +68,14 @@ std::string fontFamilyOptionLabel(uint8_t i) {
   return sdIdx < families.size() ? families[sdIdx].name : std::string();
 }
 
-// Map fontSize enum (SMALL=0, MEDIUM=1, LARGE=2, EXTRA_LARGE=3) to point sizes.
-static constexpr uint8_t FONT_SIZE_TO_PT[] = {12, 14, 16, 18};
+// Map fontSize enum (TINY=0, SMALL=1, MEDIUM=2, LARGE=3, EXTRA_LARGE=4) to point sizes.
+static constexpr uint8_t FONT_SIZE_TO_PT[] = {10, 12, 14, 16, 18};
+static_assert(sizeof(FONT_SIZE_TO_PT) == CrossPointSettings::FONT_SIZE_COUNT,
+              "FONT_SIZE_TO_PT must have one entry per FONT_SIZE enum value");
 
 static uint8_t targetPtSizeFromSettings() {
   uint8_t e = SETTINGS.fontSize;
-  if (e >= sizeof(FONT_SIZE_TO_PT)) e = 1;  // default to MEDIUM
+  if (e >= sizeof(FONT_SIZE_TO_PT)) e = CrossPointSettings::MEDIUM;  // default to MEDIUM
   return FONT_SIZE_TO_PT[e];
 }
 
@@ -153,7 +155,7 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer) {
 }
 
 static uint8_t targetPtSizeFromEnum(uint8_t fontSizeEnum) {
-  if (fontSizeEnum >= sizeof(FONT_SIZE_TO_PT)) fontSizeEnum = 1;  // default to MEDIUM
+  if (fontSizeEnum >= sizeof(FONT_SIZE_TO_PT)) fontSizeEnum = CrossPointSettings::MEDIUM;  // default to MEDIUM
   return FONT_SIZE_TO_PT[fontSizeEnum];
 }
 
