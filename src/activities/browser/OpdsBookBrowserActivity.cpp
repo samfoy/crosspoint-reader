@@ -160,7 +160,10 @@ void OpdsBookBrowserActivity::loop() {
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       navigateBack();
     } else if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-      if (!searchTemplate.empty() && selectorIndex == 0) launchSearch();
+      // Always offer search when the server advertises one, not only when the
+      // cursor happens to be on the first ("up") row. Matches upstream
+      // crosspoint-reader/crosspoint-reader#1430.
+      if (!searchTemplate.empty()) launchSearch();
     }
 
     if (!entries.empty()) {
@@ -267,7 +270,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   // Show appropriate button hint based on selected entry type
   const char* confirmLabel =
       (!entries.empty() && entries[selectorIndex].type == OpdsEntryType::BOOK) ? tr(STR_DOWNLOAD) : tr(STR_OPEN);
-  const char* searchLabel = (!searchTemplate.empty() && selectorIndex == 0) ? tr(STR_SEARCH) : tr(STR_DIR_UP);
+  const char* searchLabel = !searchTemplate.empty() ? tr(STR_SEARCH) : tr(STR_DIR_UP);
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, searchLabel, tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
