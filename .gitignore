@@ -16,3 +16,11 @@ build
 /.venv
 *.local*
 *.cpfont
+.logs/
+.cache/
+.autoloop/diagnostics/
+.autoloop/journal*.jsonl
+.autoloop/events*.jsonl
+.autoloop/memory*.jsonl
+.autoloop/perf-log.jsonl
+.autoloop/latest.log
