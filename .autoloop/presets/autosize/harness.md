@@ -4,7 +4,7 @@ The loop shrinks the `firmware.bin` flash footprint while preserving correctness
 
 ## Canonical goal document
 
-Before every phase, re-read `.autoloop/SIZE_GOAL.md` in the repo root. That file is the source of truth for:
+Before every phase, re-read `{{STATE_DIR}}/SIZE_GOAL.md` in the repo root. That file is the source of truth for:
 - The exact metric (`flash_used_bytes` from `scripts/autoloop/measure_size.sh`).
 - Baseline numbers.
 - Hard invariants (guardrails).
@@ -18,7 +18,7 @@ If SIZE_GOAL.md contradicts anything in this harness file, SIZE_GOAL.md wins.
 
 - Shared working files are the source of truth: `{{STATE_DIR}}/perf-profile.md`, `{{STATE_DIR}}/perf-log.jsonl`, `{{STATE_DIR}}/progress.md`.
 - **One optimization per iteration.** Do not stack changes. Each iteration must isolate a single hypothesis so the measure→judge outcome is unambiguous.
-- Fresh context every iteration: re-read `.autoloop/SIZE_GOAL.md`, the shared working files, and the files you intend to modify before acting.
+- Fresh context every iteration: re-read `{{STATE_DIR}}/SIZE_GOAL.md`, the shared working files, and the files you intend to modify before acting.
 - Prefer small, surgical, reversible changes.
 - **No change is accepted without a before/after measurement.** Use `scripts/autoloop/measure_size.sh` exclusively — its JSON output is the canonical metric.
 - **Every change must pass `scripts/autoloop/verify_guardrails.sh`.** The guardrail script enforces that the three features on the branch are still present. A failing guardrail script is an automatic discard.
@@ -66,8 +66,8 @@ KEEP a change iff ALL of:
 
 Otherwise DISCARD:
 - Log the failure reason in `perf-log.jsonl`.
-- `git checkout -- . && git clean -fd -- src/ lib/ scripts/ .autoloop/ platformio.ini`
-- Do not touch `.autoloop/perf-log.jsonl` when reverting.
+- `git checkout -- . && git clean -fd -- src/ lib/ scripts/ {{STATE_DIR}}/ platformio.ini`
+- Do not touch `{{STATE_DIR}}/perf-log.jsonl` when reverting.
 
 ## Parallel conflict handling
 
