@@ -7,9 +7,12 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <cctype>
+#include <variant>
 
 #include "../ActivityManager.h"
 #include "../util/ConfirmationActivity.h"
+#include "../util/KeyboardEntryActivity.h"
 #include "BookInfoActivity.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -110,6 +113,7 @@ void FileBrowserActivity::onEnter() {
   Activity::onEnter();
 
   loadFiles();
+  applyFilter();
   selectorIndex = 0;
 
   if (!focusName.empty()) {
@@ -126,6 +130,60 @@ void FileBrowserActivity::onEnter() {
 void FileBrowserActivity::onExit() {
   Activity::onExit();
   files.clear();
+  filterQuery.clear();
+}
+
+namespace {
+// Case-insensitive substring test. Avoids locale surprises and keeps ASCII folding
+// cheap; CJK / extended Unicode is not handled here, matching the current i18n scope
+// of the FileBrowser (file list is ASCII/Latin in practice).
+bool asciiContainsIgnoreCase(std::string_view haystack, std::string_view needle) {
+  if (needle.empty()) return true;
+  if (needle.size() > haystack.size()) return false;
+  auto lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
+  const auto n = needle.size();
+  for (size_t i = 0, end = haystack.size() - n + 1; i < end; ++i) {
+    bool ok = true;
+    for (size_t j = 0; j < n; ++j) {
+      if (lower(haystack[i + j]) != lower(needle[j])) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+}  // namespace
+
+void FileBrowserActivity::applyFilter() {
+  if (filterQuery.empty()) return;
+  files.erase(std::remove_if(files.begin(), files.end(),
+                             [this](const std::string& entry) {
+                               // Never hide subdirectories - they may contain matches.
+                               if (!entry.empty() && entry.back() == '/') return false;
+                               return !asciiContainsIgnoreCase(entry, filterQuery);
+                             }),
+              files.end());
+}
+
+void FileBrowserActivity::onFilterResult(const std::string& query) {
+  filterQuery = query;
+  loadFiles();
+  applyFilter();
+  selectorIndex = 0;
+  requestUpdate();
+}
+
+void FileBrowserActivity::launchFilter() {
+  auto keyboard = std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_FILTER), filterQuery);
+  startActivityForResult(std::move(keyboard), [this](const ActivityResult& result) {
+    if (result.isCancelled) {
+      requestUpdate();
+      return;
+    }
+    onFilterResult(std::get<KeyboardResult>(result.data).text);
+  });
 }
 
 void FileBrowserActivity::clearFileMetadata(const std::string& fullPath) {
@@ -147,6 +205,14 @@ void FileBrowserActivity::loop() {
         return;
       }
       if (ev.type == ButtonEventManager::PressType::Short) {
+        if (!filterQuery.empty()) {
+          // Back clears an active filter first; another press leaves the folder.
+          filterQuery.clear();
+          loadFiles();
+          selectorIndex = 0;
+          requestUpdate();
+          return;
+        }
         if (basepath != "/") {
           const std::string oldPath = basepath;
           basepath.replace(basepath.find_last_of('/'), std::string::npos, "");
@@ -177,6 +243,7 @@ void FileBrowserActivity::loop() {
         if (longPress) return;
         if (basepath.back() != '/') basepath += "/";
         basepath += entry.substr(0, entry.length() - 1);
+        filterQuery.clear();
         loadFiles();
         selectorIndex = 0;
         requestUpdate();
@@ -243,6 +310,11 @@ void FileBrowserActivity::loop() {
       return;
     }
 
+    if (ev.button == MappedInputManager::Button::Left && ev.type == ButtonEventManager::PressType::Short) {
+      launchFilter();
+      return;
+    }
+
     if (ev.button == MappedInputManager::Button::Right && ev.type == ButtonEventManager::PressType::Short) {
       if (files.empty()) return;
       const std::string& entry = files[selectorIndex];
@@ -301,6 +373,13 @@ void FileBrowserActivity::render(RenderLock&&) {
   const Rect contentRect = UITheme::getContentRect(renderer, true, true);
 
   std::string folderName = (basepath == "/") ? tr(STR_SD_CARD) : basepath.substr(basepath.rfind('/') + 1);
+  if (!filterQuery.empty()) {
+    // "Folder \u2022 filter: query"  - keeps the user oriented when a filter narrows the list.
+    folderName += " \u2022 ";
+    folderName += tr(STR_FILTER);
+    folderName += ": ";
+    folderName += filterQuery;
+  }
   GUI.drawHeader(renderer, Rect{contentRect.x, metrics.topPadding, contentRect.width, metrics.headerHeight},
                  folderName.c_str());
 
@@ -323,8 +402,13 @@ void FileBrowserActivity::render(RenderLock&&) {
   const bool hasInfo =
       !files.empty() && files[selectorIndex].back() != '/' &&
       (FsHelpers::hasEpubExtension(files[selectorIndex]) || FsHelpers::hasXtcExtension(files[selectorIndex]));
+  // Left short-press opens the filter keyboard. Show a hint whenever a filter would be useful
+  // (non-empty directory or already-active filter so the user can see how to clear it).
+  const bool showFilterHint = !files.empty() || !filterQuery.empty();
   const auto labels = mappedInput.mapLabels(basepath == "/" ? tr(STR_HOME) : tr(STR_BACK),
-                                            files.empty() ? "" : tr(STR_OPEN), "", hasInfo ? tr(STR_INFO) : "");
+                                            files.empty() ? "" : tr(STR_OPEN),
+                                            showFilterHint ? tr(STR_FILTER) : "",
+                                            hasInfo ? tr(STR_INFO) : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

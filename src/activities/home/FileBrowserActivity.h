@@ -22,9 +22,18 @@ class FileBrowserActivity final : public Activity {
   std::string focusName;  // entry to select on first load (e.g. the file just returned from)
   std::vector<std::string> files;
 
+  // In-folder text filter. Empty => no filter active. Applied to `files` in-place
+  // after loadFiles() so existing rendering code needs no changes.
+  std::string filterQuery;
+
   // Data loading
   void loadFiles();
   size_t findEntry(const std::string& name) const;
+
+  // Filtering
+  void applyFilter();      // narrows `files` to entries matching filterQuery
+  void launchFilter();     // opens the soft keyboard to edit filterQuery
+  void onFilterResult(const std::string& query);
 
  public:
   explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",
