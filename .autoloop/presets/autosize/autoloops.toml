@@ -5,12 +5,16 @@ event_loop.required_events = ["perf.measured"]
 
 backend.kind = "command"
 backend.command = "pi"
-backend.timeout_ms = 3000000
+backend.timeout_ms = 900000
 # For deterministic local harness testing only:
 # backend.kind = "command"
 # backend.command = "../../examples/mock-backend.sh"
 
-review.enabled = true
+# Metareview disabled: for size optimization the loop is already well-scoped
+# (scripts/autoloop/{measure_size,verify_guardrails}.sh and .autoloop/SIZE_GOAL.md
+# define the invariants). The adversarial gate adds a ~$0.10 pi call per iteration
+# and was observed to hang on the first run when the scratchpad was empty.
+review.enabled = false
 review.timeout_ms = 300000
 
 memory.prompt_budget_chars = 8000
