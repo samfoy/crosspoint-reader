@@ -1,7 +1,9 @@
 #include "OtaUpdater.h"
 
+#include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Logging.h>
+#include <WiFi.h>
 
 #include <cstring>
 
@@ -19,6 +21,35 @@ namespace {
 constexpr char latestReleaseUrl[] = "https://api.github.com/repos/jpirnay/crosspoint-reader/releases/latest";
 constexpr int httpRxBufferSize = 2048;
 constexpr int httpTxBufferSize = 512;
+
+// Retry budget for setup-phase OTA calls (metadata fetch and OTA begin).
+// The perform step is intentionally not retried: esp_https_ota has no resume
+// protocol, so a retry there would re-download the entire image and double
+// our chance of hitting the same transient failure.
+constexpr int otaSetupRetryCount = 3;
+constexpr uint32_t otaSetupRetryDelayMs = 2000;
+
+// How often to emit a progress heartbeat during a download. Keeps the log
+// volume bounded (~25 lines for a full ~6MB image) while still giving
+// enough resolution to correlate a failure with the wifi/heap state at
+// the moment it occurred.
+constexpr size_t otaProgressLogEveryBytes = 262144;  // 256 KB
+
+// Snapshot the current wifi + heap state. Called at entry to each OTA phase
+// and periodically while streaming the image, so serial logs captured after
+// a failure contain enough context to distinguish "AP dropped us" from
+// "ran out of heap" from "server handshake failed".
+void logWifiAndHeap(const char* where) {
+  const wl_status_t status = WiFi.status();
+  const int32_t rssi = (status == WL_CONNECTED) ? WiFi.RSSI() : 0;
+  LOG_DBG("OTA", "%s: wifi=%d rssi=%ld heap=%u largest=%u", where, static_cast<int>(status),
+          static_cast<long>(rssi), heap_caps_get_free_size(MALLOC_CAP_8BIT),
+          heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+}
+
+bool isWifiConnected() {
+  return WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0);
+}
 
 /*
  * When esp_crt_bundle.h included, it is pointing wrong header file
@@ -55,6 +86,12 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   processedSize = 0;
   totalSize = 0;
   render = false;
+
+  logWifiAndHeap("checkForUpdate entry");
+  if (!isWifiConnected()) {
+    LOG_ERR("OTA", "checkForUpdate: wifi not connected");
+    return HTTP_ERROR;
+  }
 
   esp_http_client_config_t client_config = {
       .url = latestReleaseUrl,
@@ -232,6 +269,12 @@ OtaUpdater::OtaUpdaterError OtaUpdater::beginInstallUpdate() {
   render = false;
   cancelRequested = false;
 
+  logWifiAndHeap("beginInstallUpdate entry");
+  if (!isWifiConnected()) {
+    LOG_ERR("OTA", "beginInstallUpdate: wifi not connected, aborting");
+    return HTTP_ERROR;
+  }
+
   esp_http_client_config_t client_config = {
       .url = otaUrl.c_str(),
       .timeout_ms = 10000,
@@ -250,7 +293,33 @@ OtaUpdater::OtaUpdaterError OtaUpdater::beginInstallUpdate() {
   /* For better timing and connectivity, we disable power saving for WiFi */
   esp_wifi_set_ps(WIFI_PS_NONE);
 
-  esp_err_t esp_err = esp_https_ota_begin(&ota_config, &otaHandle);
+  // esp_https_ota_begin performs the TLS handshake + HTTP GET + first chunk read.
+  // Transient AP glitches, retried TLS handshakes and upstream CDN hiccups are
+  // common on ESP32-C3 with its single antenna; one retry budget catches most
+  // without user intervention.
+  esp_err_t esp_err = ESP_FAIL;
+  for (int attempt = 1; attempt <= otaSetupRetryCount; ++attempt) {
+    esp_err = esp_https_ota_begin(&ota_config, &otaHandle);
+    if (esp_err == ESP_OK) {
+      if (attempt > 1) {
+        LOG_INF("OTA", "esp_https_ota_begin succeeded on attempt %d", attempt);
+      }
+      break;
+    }
+    LOG_ERR("OTA", "esp_https_ota_begin attempt %d/%d failed: %s", attempt, otaSetupRetryCount,
+            esp_err_to_name(esp_err));
+    logWifiAndHeap("ota_begin retry");
+    if (attempt == otaSetupRetryCount) break;
+    // Give the radio a moment to settle; if the AP kicked us the supplicant
+    // will normally reassociate during this delay.
+    delay(otaSetupRetryDelayMs);
+    if (!isWifiConnected()) {
+      LOG_ERR("OTA", "wifi dropped between retries, aborting");
+      cleanupUpdate();
+      return HTTP_ERROR;
+    }
+  }
+
   if (esp_err != ESP_OK) {
     LOG_DBG("OTA", "HTTP OTA Begin Failed: %s", esp_err_to_name(esp_err));
     cleanupUpdate();
@@ -352,8 +421,19 @@ OtaUpdater::OtaUpdaterError OtaUpdater::performInstallUpdateStep() {
   }
 
   esp_err_t esp_err = esp_https_ota_perform(otaHandle);
+  const size_t previousProcessed = processedSize;
   processedSize = esp_https_ota_get_image_len_read(otaHandle);
   render = true;
+
+  // Emit a heartbeat each time we cross a configured byte boundary. Integer
+  // division isolates this to the transition step, so the log line fires at
+  // most once per boundary even though we poll many times per boundary.
+  if (otaProgressLogEveryBytes > 0 &&
+      (processedSize / otaProgressLogEveryBytes) != (previousProcessed / otaProgressLogEveryBytes)) {
+    logWifiAndHeap("ota_perform progress");
+    LOG_INF("OTA", "progress: %u / %u bytes", static_cast<unsigned>(processedSize),
+            static_cast<unsigned>(totalSize));
+  }
 
   if (esp_err == ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
     return UPDATE_IN_PROGRESS;
@@ -362,7 +442,9 @@ OtaUpdater::OtaUpdaterError OtaUpdater::performInstallUpdateStep() {
   esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
   if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_https_ota_perform Failed: %s", esp_err_to_name(esp_err));
+    LOG_ERR("OTA", "esp_https_ota_perform Failed: %s (processed=%u/%u)", esp_err_to_name(esp_err),
+            static_cast<unsigned>(processedSize), static_cast<unsigned>(totalSize));
+    logWifiAndHeap("ota_perform fail");
     cleanupUpdate();
     return HTTP_ERROR;
   }
