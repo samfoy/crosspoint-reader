@@ -7,6 +7,7 @@
 #include <Memory.h>
 #include <OpdsStream.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 
 #include "MappedInputManager.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -309,6 +310,13 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
       "/" + StringUtils::sanitizeFilename((book.author.empty() ? "" : book.author + " - ") + book.title) + ".epub";
   LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
 
+  // Disable WiFi power saving for the duration of the download.
+  // With WIFI_PS_MIN_MODEM (the default) the ESP32 only wakes at DTIM beacon
+  // intervals (~100-300ms), throttling TCP throughput to ~20 KB/s and making
+  // a 3-5 MB EPUB download take several minutes instead of seconds.
+  // OtaUpdater uses the same pattern for the same reason.
+  esp_wifi_set_ps(WIFI_PS_NONE);
+
   const auto result = HttpDownloader::downloadToFile(
       downloadUrl, filename,
       [this](const size_t downloaded, const size_t total) {
@@ -317,6 +325,8 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
         requestUpdate(true);
       },
       server.username, server.password);
+
+  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
   if (result == HttpDownloader::OK) {
     Epub(filename, "/.crosspoint").clearCache();
